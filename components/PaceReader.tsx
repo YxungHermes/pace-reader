@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, Pause, RotateCcw, Upload, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
+import { Play, Pause, RotateCcw, Upload, ChevronLeft, ChevronRight, BookOpen, Info, X } from 'lucide-react';
 
 // Sample texts for demo
 const SAMPLE_TEXTS = {
@@ -11,6 +11,35 @@ const SAMPLE_TEXTS = {
   
   '1984 (Opening)': `It was a bright cold day in April, and the clocks were striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort to escape the vile wind, slipped quickly through the glass doors of Victory Mansions, though not quickly enough to prevent a swirl of gritty dust from entering along with him. The hallway smelt of boiled cabbage and old rag mats.`,
 };
+
+// Speed tier definitions
+const SPEED_TIERS = [
+  { min: 100, max: 200, label: 'Relaxed', color: '#22c55e', description: 'Easy pace, maximum comprehension' },
+  { min: 200, max: 300, label: 'Average', color: '#84cc16', description: 'Typical reading speed' },
+  { min: 300, max: 450, label: 'Above Average', color: '#eab308', description: 'Comfortable speed reading' },
+  { min: 450, max: 600, label: 'Fast', color: '#f97316', description: 'Practiced speed readers' },
+  { min: 600, max: 800, label: 'Advanced', color: '#ef4444', description: 'Requires solid technique' },
+  { min: 800, max: 1200, label: 'Elite', color: '#dc2626', description: 'Pro-level, scanning territory' },
+];
+
+// Get current speed tier
+function getSpeedTier(wpm: number) {
+  return SPEED_TIERS.find(tier => wpm >= tier.min && wpm < tier.max) || SPEED_TIERS[SPEED_TIERS.length - 1];
+}
+
+// Calculate reading stats
+function getReadingStats(wpm: number) {
+  const wordsPerPage = 250; // Average book page
+  const pagesPerMin = wpm / wordsPerPage;
+  const pagesPerHour = pagesPerMin * 60;
+  const timeFor300Pages = 300 / pagesPerHour; // hours to read a 300-page book
+  
+  return {
+    pagesPerMin: pagesPerMin.toFixed(1),
+    pagesPerHour: Math.round(pagesPerHour),
+    bookTime: timeFor300Pages.toFixed(1),
+  };
+}
 
 // Calculate ORP (Optimal Recognition Point) - typically around 30% into the word
 function getORPIndex(word: string): number {
@@ -45,6 +74,48 @@ function WordDisplay({ word }: { word: string }) {
   );
 }
 
+// Speed info modal
+function SpeedInfoModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-gray-900 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold">Speed Guide</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <X size={24} />
+          </button>
+        </div>
+        
+        <div className="space-y-3">
+          {SPEED_TIERS.map((tier) => (
+            <div key={tier.label} className="flex items-center gap-3">
+              <div 
+                className="w-3 h-3 rounded-full flex-shrink-0" 
+                style={{ backgroundColor: tier.color }}
+              />
+              <div className="flex-1">
+                <div className="flex justify-between">
+                  <span className="font-medium">{tier.label}</span>
+                  <span className="text-gray-500 text-sm">{tier.min}-{tier.max}</span>
+                </div>
+                <p className="text-gray-500 text-sm">{tier.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-6 pt-4 border-t border-gray-800">
+          <p className="text-gray-400 text-sm">
+            💡 <strong>Tip:</strong> Start at 250-350 WPM and gradually increase as you get comfortable. Focus on comprehension over speed.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PaceReader() {
   const [text, setText] = useState<string>('');
   const [words, setWords] = useState<string[]>([]);
@@ -52,9 +123,13 @@ export default function PaceReader() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [wpm, setWpm] = useState(300);
   const [showLibrary, setShowLibrary] = useState(true);
+  const [showSpeedInfo, setShowSpeedInfo] = useState(false);
   const [fontSize, setFontSize] = useState(48);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const speedTier = getSpeedTier(wpm);
+  const readingStats = getReadingStats(wpm);
 
   // Parse text into words
   useEffect(() => {
@@ -212,6 +287,8 @@ export default function PaceReader() {
   // Reader view
   return (
     <div className="min-h-screen bg-pace-bg flex flex-col safe-area-padding">
+      <SpeedInfoModal isOpen={showSpeedInfo} onClose={() => setShowSpeedInfo(false)} />
+      
       {/* Progress bar */}
       <div className="w-full h-1 bg-gray-800">
         <div 
@@ -229,8 +306,22 @@ export default function PaceReader() {
           ← Library
         </button>
         <div className="text-center">
-          <span className="text-2xl font-bold text-pace-accent">{wpm}</span>
-          <span className="text-gray-500 text-sm ml-1">WPM</span>
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-2xl font-bold" style={{ color: speedTier.color }}>{wpm}</span>
+            <span className="text-gray-500 text-sm">WPM</span>
+            <button 
+              onClick={() => setShowSpeedInfo(true)}
+              className="text-gray-500 hover:text-white transition-colors"
+            >
+              <Info size={16} />
+            </button>
+          </div>
+          <span 
+            className="text-xs font-medium"
+            style={{ color: speedTier.color }}
+          >
+            {speedTier.label}
+          </span>
         </div>
         <div className="text-gray-500 text-sm">
           {estimatedTimeLeft}m left
@@ -248,24 +339,53 @@ export default function PaceReader() {
         </div>
       </div>
 
+      {/* Reading stats bar */}
+      <div className="flex justify-center gap-6 py-3 border-t border-gray-800/50">
+        <div className="text-center">
+          <span className="text-lg font-semibold text-white">{readingStats.pagesPerMin}</span>
+          <p className="text-xs text-gray-500">pages/min</p>
+        </div>
+        <div className="text-center">
+          <span className="text-lg font-semibold text-white">{readingStats.pagesPerHour}</span>
+          <p className="text-xs text-gray-500">pages/hr</p>
+        </div>
+        <div className="text-center">
+          <span className="text-lg font-semibold text-white">{readingStats.bookTime}h</span>
+          <p className="text-xs text-gray-500">for 300pg book</p>
+        </div>
+      </div>
+
       {/* Controls */}
       <div className="p-6 space-y-6">
-        {/* Speed slider */}
+        {/* Speed slider with tier markers */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm text-gray-500">
             <span>100</span>
             <span>Speed (WPM)</span>
             <span>1200</span>
           </div>
-          <input
-            type="range"
-            min="100"
-            max="1200"
-            step="25"
-            value={wpm}
-            onChange={(e) => setWpm(Number(e.target.value))}
-            className="w-full"
-          />
+          <div className="relative">
+            <input
+              type="range"
+              min="100"
+              max="1200"
+              step="25"
+              value={wpm}
+              onChange={(e) => setWpm(Number(e.target.value))}
+              className="w-full"
+            />
+            {/* Recommended zone indicator */}
+            <div 
+              className="absolute top-1/2 -translate-y-1/2 h-2 bg-green-500/20 rounded pointer-events-none"
+              style={{ 
+                left: `${((250 - 100) / (1200 - 100)) * 100}%`,
+                width: `${((400 - 250) / (1200 - 100)) * 100}%`
+              }}
+            />
+          </div>
+          <div className="text-center text-xs text-gray-600">
+            Recommended starting zone: 250-400 WPM
+          </div>
         </div>
 
         {/* Font size slider */}
