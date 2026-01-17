@@ -70,7 +70,7 @@ function getMaxFontSizeForWord(word: string, screenWidth: number, padding: numbe
   return Math.floor(maxFontSize);
 }
 
-// Word display with ORP
+// Word display with ORP - flat, no effects
 function WordDisplay({ word, maxWidth }: { word: string; maxWidth: number }) {
   if (!word) return null;
   
@@ -81,38 +81,21 @@ function WordDisplay({ word, maxWidth }: { word: string; maxWidth: number }) {
   
   return (
     <div 
-      className="flex items-center justify-center font-bold tracking-wide"
-      style={{ width: maxWidth, maxWidth: '100%' }}
+      className="flex items-center justify-center font-bold"
+      style={{ maxWidth: '100%' }}
     >
       <span 
-        className="inline-block text-right"
-        style={{ 
-          width: '50%', 
-          paddingRight: '0.05em',
-          color: '#ffffff',
-          textShadow: '0 0 30px rgba(255,255,255,0.4)'
-        }}
+        className="inline-block text-right text-white"
+        style={{ minWidth: '45%', paddingRight: '0.02em' }}
       >
         {before}
       </span>
-      <span 
-        className="inline-block text-center font-black"
-        style={{ 
-          width: 'auto',
-          color: '#ff4444',
-          textShadow: '0 0 40px rgba(255,68,68,0.7), 0 0 80px rgba(255,68,68,0.4)'
-        }}
-      >
+      <span className="inline-block text-center font-black text-red-500">
         {orp}
       </span>
       <span 
-        className="inline-block text-left"
-        style={{ 
-          width: '50%', 
-          paddingLeft: '0.05em',
-          color: '#ffffff',
-          textShadow: '0 0 30px rgba(255,255,255,0.4)'
-        }}
+        className="inline-block text-left text-white"
+        style={{ minWidth: '45%', paddingLeft: '0.02em' }}
       >
         {after}
       </span>
@@ -578,10 +561,14 @@ export default function PaceReader() {
         </div>
       )}
 
-      {/* Main reading area */}
+      {/* Main reading area - absolute center when in zen mode */}
       <div 
         ref={containerRef}
-        className="flex-1 flex items-center justify-center px-4 no-select cursor-pointer"
+        className={`flex items-center justify-center px-4 no-select cursor-pointer transition-all duration-300 ${
+          isZenActive 
+            ? 'fixed inset-0 z-40' 
+            : 'flex-1'
+        }`}
         onClick={togglePlay}
         style={{ fontSize: `${Math.min(fontSize, maxSafeFontSize)}px` }}
       >
