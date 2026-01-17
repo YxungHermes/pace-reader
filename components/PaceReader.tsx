@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, Pause, RotateCcw, Upload, ChevronLeft, ChevronRight, BookOpen, Info, X } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Play, Pause, RotateCcw, Upload, ChevronLeft, ChevronRight, BookOpen, Info, X, Eye, EyeOff } from 'lucide-react';
 
 // Sample texts for demo
 const SAMPLE_TEXTS = {
@@ -29,10 +29,10 @@ function getSpeedTier(wpm: number) {
 
 // Calculate reading stats
 function getReadingStats(wpm: number) {
-  const wordsPerPage = 250; // Average book page
+  const wordsPerPage = 250;
   const pagesPerMin = wpm / wordsPerPage;
   const pagesPerHour = pagesPerMin * 60;
-  const timeFor300Pages = 300 / pagesPerHour; // hours to read a 300-page book
+  const timeFor300Pages = 300 / pagesPerHour;
   
   return {
     pagesPerMin: pagesPerMin.toFixed(1),
@@ -41,7 +41,7 @@ function getReadingStats(wpm: number) {
   };
 }
 
-// Calculate ORP (Optimal Recognition Point) - typically around 30% into the word
+// Calculate ORP (Optimal Recognition Point)
 function getORPIndex(word: string): number {
   const len = word.length;
   if (len <= 1) return 0;
@@ -52,8 +52,34 @@ function getORPIndex(word: string): number {
   return 4;
 }
 
-// Render word with ORP highlighting
-function WordDisplay({ word }: { word: string }) {
+// Get font size limits based on screen width
+function getFontSizeLimits(screenWidth: number) {
+  if (screenWidth < 640) {
+    // Mobile
+    return { min: 24, max: 64, default: 40 };
+  } else if (screenWidth < 1024) {
+    // Tablet
+    return { min: 32, max: 120, default: 64 };
+  } else if (screenWidth < 1920) {
+    // Desktop
+    return { min: 48, max: 200, default: 80 };
+  } else {
+    // 4K+
+    return { min: 64, max: 400, default: 120 };
+  }
+}
+
+// Calculate max safe font size for a word to fit on screen
+function getMaxFontSizeForWord(word: string, screenWidth: number, padding: number = 40) {
+  // Approximate character width ratio (varies by font, ~0.6 for Inter)
+  const charWidthRatio = 0.55;
+  const availableWidth = screenWidth - (padding * 2);
+  const maxFontSize = availableWidth / (word.length * charWidthRatio);
+  return Math.floor(maxFontSize);
+}
+
+// Render word with ORP highlighting - fixed positioning
+function WordDisplay({ word, maxWidth }: { word: string; maxWidth: number }) {
   if (!word) return null;
   
   const orpIndex = getORPIndex(word);
@@ -62,12 +88,23 @@ function WordDisplay({ word }: { word: string }) {
   const after = word.slice(orpIndex + 1);
   
   return (
-    <div className="flex items-center justify-center">
-      <span className="text-pace-text text-right" style={{ minWidth: '45%', textAlign: 'right' }}>
+    <div 
+      className="flex items-center justify-center font-bold tracking-wide"
+      style={{ width: maxWidth, maxWidth: '100%' }}
+    >
+      <span 
+        className="text-pace-text inline-block text-right"
+        style={{ width: '50%', paddingRight: '0.05em' }}
+      >
         {before}
       </span>
-      <span className="text-pace-orp font-bold">{orp}</span>
-      <span className="text-pace-text text-left" style={{ minWidth: '45%', textAlign: 'left' }}>
+      <span className="text-pace-orp inline-block text-center" style={{ width: 'auto' }}>
+        {orp}
+      </span>
+      <span 
+        className="text-pace-text inline-block text-left"
+        style={{ width: '50%', paddingLeft: '0.05em' }}
+      >
         {after}
       </span>
     </div>
@@ -108,7 +145,7 @@ function SpeedInfoModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
         
         <div className="mt-6 pt-4 border-t border-gray-800">
           <p className="text-gray-400 text-sm">
-            💡 <strong>Tip:</strong> Start at 250-350 WPM and gradually increase as you get comfortable. Focus on comprehension over speed.
+            💡 <strong>Tip:</strong> Start at 250-350 WPM and gradually increase. Focus on comprehension over speed.
           </p>
         </div>
       </div>
@@ -124,12 +161,49 @@ export default function PaceReader() {
   const [wpm, setWpm] = useState(300);
   const [showLibrary, setShowLibrary] = useState(true);
   const [showSpeedInfo, setShowSpeedInfo] = useState(false);
+  const [zenMode, setZenMode] = useState(true); // Auto-zen when playing
+  const [manualZenOverride, setManualZenOverride] = useState(false);
   const [fontSize, setFontSize] = useState(48);
+  const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const speedTier = getSpeedTier(wpm);
   const readingStats = getReadingStats(wpm);
+  const fontLimits = getFontSizeLimits(screenWidth);
+  
+  // Calculate longest word for safe font sizing
+  const longestWord = useMemo(() => {
+    if (words.length === 0) return '';
+    return words.reduce((longest, word) => word.length > longest.length ? word : longest, '');
+  }, [words]);
+
+  // Calculate max safe font size based on longest word
+  const maxSafeFontSize = useMemo(() => {
+    if (!longestWord) return fontLimits.max;
+    const safeSize = getMaxFontSizeForWord(longestWord, screenWidth, 32);
+    return Math.min(safeSize, fontLimits.max);
+  }, [longestWord, screenWidth, fontLimits.max]);
+
+  // Determine if zen mode should be active
+  const isZenActive = (isPlaying && zenMode) || manualZenOverride;
+
+  // Handle screen resize
+  useEffect(() => {
+    const handleResize = () => {
+      setScreenWidth(window.innerWidth);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Update font size when screen changes
+  useEffect(() => {
+    const limits = getFontSizeLimits(screenWidth);
+    setFontSize(prev => Math.max(limits.min, Math.min(prev, limits.max)));
+  }, [screenWidth]);
 
   // Parse text into words
   useEffect(() => {
@@ -147,7 +221,7 @@ export default function PaceReader() {
   // Handle playback
   useEffect(() => {
     if (isPlaying && words.length > 0) {
-      const interval = 60000 / wpm; // ms per word
+      const interval = 60000 / wpm;
       
       intervalRef.current = setInterval(() => {
         setCurrentIndex(prev => {
@@ -181,6 +255,11 @@ export default function PaceReader() {
         skipForward();
       } else if (e.code === 'ArrowDown') {
         skipBackward();
+      } else if (e.code === 'KeyZ') {
+        setManualZenOverride(p => !p);
+      } else if (e.code === 'Escape') {
+        setManualZenOverride(false);
+        setIsPlaying(false);
       }
     };
 
@@ -286,19 +365,29 @@ export default function PaceReader() {
 
   // Reader view
   return (
-    <div className="min-h-screen bg-pace-bg flex flex-col safe-area-padding">
+    <div className="min-h-screen bg-pace-bg flex flex-col safe-area-padding overflow-hidden">
       <SpeedInfoModal isOpen={showSpeedInfo} onClose={() => setShowSpeedInfo(false)} />
       
-      {/* Progress bar - minimal, fades out during reading */}
-      <div className={`w-full h-[2px] bg-gray-900 transition-opacity duration-500 ${isPlaying ? 'opacity-0' : 'opacity-40'}`}>
+      {/* Progress bar - minimal, fades in zen mode */}
+      <div 
+        className={`w-full h-[2px] bg-gray-900 transition-all duration-500 ${
+          isZenActive ? 'opacity-0' : 'opacity-40'
+        }`}
+      >
         <div 
           className="h-full bg-gray-500 transition-all duration-100"
           style={{ width: `${progress}%` }}
         />
       </div>
 
-      {/* Header */}
-      <div className="flex justify-between items-center p-4">
+      {/* Header - blurs and fades in zen mode */}
+      <div 
+        className={`flex justify-between items-center p-4 transition-all duration-500 ${
+          isZenActive 
+            ? 'opacity-10 blur-sm grayscale pointer-events-none' 
+            : 'opacity-100 blur-0'
+        }`}
+      >
         <button
           onClick={() => setShowLibrary(true)}
           className="text-gray-400 hover:text-white transition-colors"
@@ -328,19 +417,24 @@ export default function PaceReader() {
         </div>
       </div>
 
-      {/* Main reading area */}
+      {/* Main reading area - always sharp and focused */}
       <div 
-        className="flex-1 flex items-center justify-center px-4 no-select"
+        ref={containerRef}
+        className="flex-1 flex items-center justify-center px-4 no-select cursor-pointer"
         onClick={togglePlay}
-        style={{ fontSize: `${fontSize}px` }}
+        style={{ fontSize: `${Math.min(fontSize, maxSafeFontSize)}px` }}
       >
-        <div className="font-bold tracking-wide">
-          <WordDisplay word={currentWord} />
-        </div>
+        <WordDisplay word={currentWord} maxWidth={screenWidth - 32} />
       </div>
 
-      {/* Reading stats bar */}
-      <div className="flex justify-center gap-6 py-3 border-t border-gray-800/50">
+      {/* Reading stats bar - hides in zen mode */}
+      <div 
+        className={`flex justify-center gap-6 py-3 border-t border-gray-800/50 transition-all duration-500 ${
+          isZenActive 
+            ? 'opacity-0 blur-md grayscale pointer-events-none h-0 py-0 overflow-hidden' 
+            : 'opacity-100 blur-0'
+        }`}
+      >
         <div className="text-center">
           <span className="text-lg font-semibold text-white">{readingStats.pagesPerMin}</span>
           <p className="text-xs text-gray-500">pages/min</p>
@@ -355,8 +449,14 @@ export default function PaceReader() {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="p-6 space-y-6">
+      {/* Controls - blur and fade in zen mode */}
+      <div 
+        className={`p-6 space-y-6 transition-all duration-500 ${
+          isZenActive 
+            ? 'opacity-20 blur-md grayscale pointer-events-none' 
+            : 'opacity-100 blur-0'
+        }`}
+      >
         {/* Speed slider with tier markers */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm text-gray-500">
@@ -388,22 +488,37 @@ export default function PaceReader() {
           </div>
         </div>
 
-        {/* Font size slider */}
+        {/* Font size slider - dynamic range based on screen */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm text-gray-500">
-            <span>32</span>
+            <span>{fontLimits.min}</span>
             <span>Font Size</span>
-            <span>72</span>
+            <span>{Math.min(fontLimits.max, maxSafeFontSize)}</span>
           </div>
           <input
             type="range"
-            min="32"
-            max="72"
+            min={fontLimits.min}
+            max={Math.min(fontLimits.max, maxSafeFontSize)}
             step="4"
-            value={fontSize}
+            value={Math.min(fontSize, maxSafeFontSize)}
             onChange={(e) => setFontSize(Number(e.target.value))}
             className="w-full"
           />
+        </div>
+
+        {/* Zen mode toggle */}
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => setZenMode(!zenMode)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
+              zenMode 
+                ? 'bg-gray-800 text-white' 
+                : 'bg-gray-900 text-gray-400 border border-gray-800'
+            }`}
+          >
+            {zenMode ? <EyeOff size={16} /> : <Eye size={16} />}
+            Zen Mode {zenMode ? 'On' : 'Off'}
+          </button>
         </div>
 
         {/* Playback controls */}
@@ -437,9 +552,12 @@ export default function PaceReader() {
           </button>
         </div>
 
-        {/* Word counter */}
-        <div className="text-center text-gray-500 text-sm">
-          {currentIndex + 1} / {words.length} words
+        {/* Word counter & keyboard hints */}
+        <div className="text-center text-gray-500 text-sm space-y-1">
+          <div>{currentIndex + 1} / {words.length} words</div>
+          <div className="text-xs text-gray-600">
+            Space: play/pause · Z: toggle zen · Esc: exit zen
+          </div>
         </div>
       </div>
     </div>
