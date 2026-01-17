@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Play, Pause, RotateCcw, Upload, ChevronLeft, ChevronRight, BookOpen, Info, X, Eye, EyeOff } from 'lucide-react';
+import { Play, Pause, RotateCcw, Upload, ChevronLeft, ChevronRight, BookOpen, Info, X, Eye, EyeOff, FileText, Book, List, Loader2 } from 'lucide-react';
+import MagnifierSlider from './MagnifierSlider';
+import { parseBookFile, ParsedBook, BookMetadata } from '@/lib/bookParser';
 
 // Sample texts for demo
 const SAMPLE_TEXTS = {
@@ -22,12 +24,10 @@ const SPEED_TIERS = [
   { min: 800, max: 1200, label: 'Elite', color: '#ef4444', description: 'Pro-level, scanning territory' },
 ];
 
-// Get current speed tier
 function getSpeedTier(wpm: number) {
   return SPEED_TIERS.find(tier => wpm >= tier.min && wpm < tier.max) || SPEED_TIERS[SPEED_TIERS.length - 1];
 }
 
-// Calculate reading stats
 function getReadingStats(wpm: number) {
   const wordsPerPage = 250;
   const pagesPerMin = wpm / wordsPerPage;
@@ -41,7 +41,6 @@ function getReadingStats(wpm: number) {
   };
 }
 
-// Calculate ORP (Optimal Recognition Point)
 function getORPIndex(word: string): number {
   const len = word.length;
   if (len <= 1) return 0;
@@ -52,7 +51,6 @@ function getORPIndex(word: string): number {
   return 4;
 }
 
-// Get font size limits based on screen width
 function getFontSizeLimits(screenWidth: number) {
   if (screenWidth < 640) {
     return { min: 24, max: 64, default: 40 };
@@ -65,7 +63,6 @@ function getFontSizeLimits(screenWidth: number) {
   }
 }
 
-// Calculate max safe font size for a word to fit on screen
 function getMaxFontSizeForWord(word: string, screenWidth: number, padding: number = 40) {
   const charWidthRatio = 0.55;
   const availableWidth = screenWidth - (padding * 2);
@@ -73,7 +70,7 @@ function getMaxFontSizeForWord(word: string, screenWidth: number, padding: numbe
   return Math.floor(maxFontSize);
 }
 
-// Render word with ORP highlighting - BRIGHTER text
+// Word display with ORP
 function WordDisplay({ word, maxWidth }: { word: string; maxWidth: number }) {
   if (!word) return null;
   
@@ -93,7 +90,7 @@ function WordDisplay({ word, maxWidth }: { word: string; maxWidth: number }) {
           width: '50%', 
           paddingRight: '0.05em',
           color: '#ffffff',
-          textShadow: '0 0 20px rgba(255,255,255,0.3)'
+          textShadow: '0 0 30px rgba(255,255,255,0.4)'
         }}
       >
         {before}
@@ -103,7 +100,7 @@ function WordDisplay({ word, maxWidth }: { word: string; maxWidth: number }) {
         style={{ 
           width: 'auto',
           color: '#ff4444',
-          textShadow: '0 0 30px rgba(255,68,68,0.6), 0 0 60px rgba(255,68,68,0.3)'
+          textShadow: '0 0 40px rgba(255,68,68,0.7), 0 0 80px rgba(255,68,68,0.4)'
         }}
       >
         {orp}
@@ -114,7 +111,7 @@ function WordDisplay({ word, maxWidth }: { word: string; maxWidth: number }) {
           width: '50%', 
           paddingLeft: '0.05em',
           color: '#ffffff',
-          textShadow: '0 0 20px rgba(255,255,255,0.3)'
+          textShadow: '0 0 30px rgba(255,255,255,0.4)'
         }}
       >
         {after}
@@ -129,7 +126,7 @@ function SpeedInfoModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
   
   return (
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-gray-900 rounded-2xl p-6 max-w-sm w-full border border-gray-800" onClick={e => e.stopPropagation()}>
+      <div className="glass rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-white">Speed Guide</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white">
@@ -154,11 +151,66 @@ function SpeedInfoModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Chapter list modal
+function ChapterListModal({ 
+  isOpen, 
+  onClose, 
+  chapters, 
+  onSelectChapter,
+  currentWordIndex 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  chapters: BookMetadata['chapters'];
+  onSelectChapter: (index: number) => void;
+  currentWordIndex: number;
+}) {
+  if (!isOpen) return null;
+  
+  // Find current chapter
+  const currentChapter = chapters.reduce((acc, ch, i) => {
+    if (ch.index <= currentWordIndex) return i;
+    return acc;
+  }, 0);
+  
+  return (
+    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="glass rounded-2xl p-6 max-w-md w-full max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-white">Chapters</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <X size={24} />
+          </button>
+        </div>
         
-        <div className="mt-6 pt-4 border-t border-gray-800">
-          <p className="text-gray-400 text-sm">
-            💡 <strong className="text-white">Tip:</strong> Start at 250-350 WPM and gradually increase. Focus on comprehension over speed.
-          </p>
+        <div className="chapter-list overflow-y-auto flex-1 -mx-2 px-2">
+          {chapters.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">No chapters found</p>
+          ) : (
+            <div className="space-y-1">
+              {chapters.map((chapter, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    onSelectChapter(chapter.index);
+                    onClose();
+                  }}
+                  className={`w-full p-3 rounded-lg text-left transition-colors ${
+                    i === currentChapter 
+                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' 
+                      : 'hover:bg-gray-800 text-gray-300'
+                  }`}
+                >
+                  <span className="text-sm">{chapter.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -173,9 +225,15 @@ export default function PaceReader() {
   const [wpm, setWpm] = useState(300);
   const [showLibrary, setShowLibrary] = useState(true);
   const [showSpeedInfo, setShowSpeedInfo] = useState(false);
-  const [zenDisabled, setZenDisabled] = useState(false); // When true, zen mode won't activate
+  const [showChapters, setShowChapters] = useState(false);
+  const [zenDisabled, setZenDisabled] = useState(false);
   const [fontSize, setFontSize] = useState(48);
   const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [bookMetadata, setBookMetadata] = useState<BookMetadata | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -184,28 +242,22 @@ export default function PaceReader() {
   const readingStats = getReadingStats(wpm);
   const fontLimits = getFontSizeLimits(screenWidth);
   
-  // Calculate longest word for safe font sizing
   const longestWord = useMemo(() => {
     if (words.length === 0) return '';
     return words.reduce((longest, word) => word.length > longest.length ? word : longest, '');
   }, [words]);
 
-  // Calculate max safe font size based on longest word
   const maxSafeFontSize = useMemo(() => {
     if (!longestWord) return fontLimits.max;
     const safeSize = getMaxFontSizeForWord(longestWord, screenWidth, 32);
     return Math.min(safeSize, fontLimits.max);
   }, [longestWord, screenWidth, fontLimits.max]);
 
-  // Zen mode is active when playing AND not disabled
   const isZenActive = isPlaying && !zenDisabled;
 
   // Handle screen resize
   useEffect(() => {
-    const handleResize = () => {
-      setScreenWidth(window.innerWidth);
-    };
-    
+    const handleResize = () => setScreenWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -245,9 +297,7 @@ export default function PaceReader() {
       }, interval);
       
       return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-        }
+        if (intervalRef.current) clearInterval(intervalRef.current);
       };
     }
   }, [isPlaying, wpm, words.length]);
@@ -270,6 +320,8 @@ export default function PaceReader() {
         setZenDisabled(p => !p);
       } else if (e.code === 'Escape') {
         setIsPlaying(false);
+      } else if (e.code === 'KeyC') {
+        setShowChapters(p => !p);
       }
     };
 
@@ -292,20 +344,58 @@ export default function PaceReader() {
     setCurrentIndex(prev => Math.max(0, prev - 10));
   }, []);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const jumpToWord = (index: number) => {
+    setCurrentIndex(Math.max(0, Math.min(index, words.length - 1)));
+    setIsPlaying(false);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
+    if (!file) return;
+    
+    setIsLoading(true);
+    setError(null);
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    
+    try {
+      if (extension === 'txt') {
+        setLoadingMessage('Reading text file...');
+        const content = await file.text();
         setText(content);
-      };
-      reader.readAsText(file);
+        setBookMetadata({
+          title: file.name.replace('.txt', ''),
+          author: 'Unknown',
+          chapters: [],
+        });
+      } else if (extension === 'epub' || extension === 'pdf') {
+        setLoadingMessage(`Parsing ${extension.toUpperCase()} file...`);
+        const parsed = await parseBookFile(file);
+        setText(parsed.content);
+        setBookMetadata(parsed.metadata);
+      } else {
+        throw new Error(`Unsupported file type: .${extension}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse file');
+      console.error('File parsing error:', err);
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
   const selectSampleText = (key: string) => {
     setText(SAMPLE_TEXTS[key as keyof typeof SAMPLE_TEXTS]);
+    setBookMetadata({
+      title: key,
+      author: 'Sample',
+      chapters: [],
+    });
   };
 
   const progress = words.length > 0 ? (currentIndex / (words.length - 1)) * 100 : 0;
@@ -322,9 +412,59 @@ export default function PaceReader() {
           <h1 className="text-3xl font-bold text-center mb-2 text-white">Pace Reader</h1>
           <p className="text-gray-400 text-center mb-8">Speed read with RSVP technique</p>
           
+          {/* Error display */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+              {error}
+              <button 
+                onClick={() => setError(null)}
+                className="ml-2 text-red-300 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          
+          {/* Loading overlay */}
+          {isLoading && (
+            <div className="mb-6 p-6 bg-gray-900/50 rounded-lg text-center">
+              <div className="spinner mx-auto mb-3" />
+              <p className="text-gray-400">{loadingMessage}</p>
+            </div>
+          )}
+          
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-blue-400 flex items-center gap-2">
-              <BookOpen size={20} />
+            {/* Upload section - now prominent */}
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-blue-400 flex items-center gap-2 mb-4">
+                <Book size={20} />
+                Upload Book
+              </h2>
+              
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="w-full p-6 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-xl border-2 border-dashed border-blue-500/30 hover:border-blue-400 transition-all disabled:opacity-50"
+              >
+                <Upload size={32} className="mx-auto mb-3 text-blue-400" />
+                <span className="text-white font-medium block">Choose File</span>
+                <span className="text-gray-500 text-sm block mt-1">
+                  Supports EPUB, PDF, TXT
+                </span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.epub,.pdf"
+                onChange={handleFileUpload}
+                className="hidden"
+                disabled={isLoading}
+              />
+            </div>
+            
+            {/* Sample texts */}
+            <h2 className="text-lg font-semibold text-gray-400 flex items-center gap-2">
+              <FileText size={20} />
               Sample Texts
             </h2>
             
@@ -341,30 +481,26 @@ export default function PaceReader() {
               </button>
             ))}
             
+            {/* Paste text */}
             <div className="border-t border-gray-800 pt-4 mt-6">
-              <h2 className="text-lg font-semibold text-blue-400 flex items-center gap-2 mb-4">
-                <Upload size={20} />
-                Your Text
+              <h2 className="text-lg font-semibold text-gray-400 flex items-center gap-2 mb-4">
+                <FileText size={20} />
+                Paste Text
               </h2>
               
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full p-4 bg-gray-900/50 rounded-lg border-2 border-dashed border-gray-700 hover:border-blue-500 transition-colors"
-              >
-                <span className="text-gray-400">Upload .txt file</span>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".txt"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              
               <textarea
-                placeholder="Or paste your text here..."
-                className="w-full mt-4 p-4 bg-gray-900/50 rounded-lg border border-gray-800 focus:border-blue-500 outline-none resize-none h-32 text-white placeholder-gray-600"
-                onChange={(e) => setText(e.target.value)}
+                placeholder="Paste your text here..."
+                className="w-full p-4 bg-gray-900/50 rounded-lg border border-gray-800 focus:border-blue-500 outline-none resize-none h-32 text-white placeholder-gray-600"
+                onChange={(e) => {
+                  if (e.target.value.trim()) {
+                    setText(e.target.value);
+                    setBookMetadata({
+                      title: 'Pasted Text',
+                      author: '',
+                      chapters: [],
+                    });
+                  }
+                }}
               />
             </div>
           </div>
@@ -377,8 +513,15 @@ export default function PaceReader() {
   return (
     <div className="min-h-screen bg-black flex flex-col safe-area-padding overflow-hidden">
       <SpeedInfoModal isOpen={showSpeedInfo} onClose={() => setShowSpeedInfo(false)} />
+      <ChapterListModal 
+        isOpen={showChapters} 
+        onClose={() => setShowChapters(false)}
+        chapters={bookMetadata?.chapters || []}
+        onSelectChapter={jumpToWord}
+        currentWordIndex={currentIndex}
+      />
       
-      {/* Progress bar - minimal, fades in zen mode */}
+      {/* Progress bar */}
       <div 
         className={`w-full h-[2px] bg-gray-900 transition-all duration-500 ${
           isZenActive ? 'opacity-0' : 'opacity-40'
@@ -390,12 +533,10 @@ export default function PaceReader() {
         />
       </div>
 
-      {/* Header - blurs and fades in zen mode */}
+      {/* Header */}
       <div 
         className={`flex justify-between items-center p-4 transition-all duration-500 ${
-          isZenActive 
-            ? 'opacity-0 blur-sm pointer-events-none' 
-            : 'opacity-100 blur-0'
+          isZenActive ? 'opacity-0 blur-sm pointer-events-none' : 'opacity-100 blur-0'
         }`}
       >
         <button
@@ -404,7 +545,16 @@ export default function PaceReader() {
         >
           ← Library
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {bookMetadata?.chapters && bookMetadata.chapters.length > 0 && (
+            <button 
+              onClick={() => setShowChapters(true)}
+              className="text-gray-500 hover:text-white transition-colors"
+              title="Chapters"
+            >
+              <List size={18} />
+            </button>
+          )}
           <button 
             onClick={() => setShowSpeedInfo(true)}
             className="text-gray-500 hover:text-white transition-colors"
@@ -416,8 +566,19 @@ export default function PaceReader() {
           {estimatedTimeLeft}m left
         </div>
       </div>
+      
+      {/* Book title */}
+      {bookMetadata && (
+        <div 
+          className={`text-center px-4 transition-all duration-500 ${
+            isZenActive ? 'opacity-0' : 'opacity-100'
+          }`}
+        >
+          <p className="text-gray-500 text-sm truncate">{bookMetadata.title}</p>
+        </div>
+      )}
 
-      {/* Main reading area - always sharp and focused */}
+      {/* Main reading area */}
       <div 
         ref={containerRef}
         className="flex-1 flex items-center justify-center px-4 no-select cursor-pointer"
@@ -427,12 +588,10 @@ export default function PaceReader() {
         <WordDisplay word={currentWord} maxWidth={screenWidth - 32} />
       </div>
 
-      {/* Reading stats bar - hides in zen mode */}
+      {/* Reading stats bar */}
       <div 
         className={`flex justify-center gap-6 py-3 border-t border-gray-800/30 transition-all duration-500 ${
-          isZenActive 
-            ? 'opacity-0 blur-md pointer-events-none h-0 py-0 overflow-hidden' 
-            : 'opacity-100 blur-0'
+          isZenActive ? 'opacity-0 blur-md pointer-events-none h-0 py-0 overflow-hidden' : 'opacity-100 blur-0'
         }`}
       >
         <div className="text-center">
@@ -449,67 +608,36 @@ export default function PaceReader() {
         </div>
       </div>
 
-      {/* Controls - blur and fade in zen mode */}
+      {/* Controls */}
       <div 
-        className={`p-6 space-y-5 transition-all duration-500 ${
-          isZenActive 
-            ? 'opacity-0 blur-md pointer-events-none' 
-            : 'opacity-100 blur-0'
+        className={`p-6 space-y-4 transition-all duration-500 ${
+          isZenActive ? 'opacity-0 blur-md pointer-events-none' : 'opacity-100 blur-0'
         }`}
       >
-        {/* WPM Slider with value above */}
-        <div className="space-y-3">
-          <div className="text-center">
-            <span 
-              className="text-4xl font-bold"
-              style={{ color: speedTier.color }}
-            >
-              {wpm}
-            </span>
-            <span className="text-gray-500 text-lg ml-2">WPM</span>
-            <div 
-              className="text-sm font-medium mt-1"
-              style={{ color: speedTier.color }}
-            >
-              {speedTier.label}
-            </div>
-          </div>
-          <input
-            type="range"
-            min="100"
-            max="1200"
-            step="25"
-            value={wpm}
-            onChange={(e) => setWpm(Number(e.target.value))}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-gray-600">
-            <span>100</span>
-            <span>1200</span>
-          </div>
-        </div>
+        {/* WPM Slider with magnifier */}
+        <MagnifierSlider
+          min={100}
+          max={1200}
+          step={25}
+          value={wpm}
+          onChange={setWpm}
+          label="Speed"
+          unit="WPM"
+          color={speedTier.color}
+          subLabel={speedTier.label}
+        />
 
-        {/* Font size slider with value above */}
-        <div className="space-y-3">
-          <div className="text-center">
-            <span className="text-2xl font-bold text-white">{Math.min(fontSize, maxSafeFontSize)}</span>
-            <span className="text-gray-500 text-sm ml-2">px</span>
-            <div className="text-xs text-gray-500 mt-1">Font Size</div>
-          </div>
-          <input
-            type="range"
-            min={fontLimits.min}
-            max={Math.min(fontLimits.max, maxSafeFontSize)}
-            step="4"
-            value={Math.min(fontSize, maxSafeFontSize)}
-            onChange={(e) => setFontSize(Number(e.target.value))}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-gray-600">
-            <span>{fontLimits.min}</span>
-            <span>{Math.min(fontLimits.max, maxSafeFontSize)}</span>
-          </div>
-        </div>
+        {/* Font size slider with magnifier */}
+        <MagnifierSlider
+          min={fontLimits.min}
+          max={Math.min(fontLimits.max, maxSafeFontSize)}
+          step={4}
+          value={Math.min(fontSize, maxSafeFontSize)}
+          onChange={setFontSize}
+          label="Font Size"
+          unit="px"
+          color="#ffffff"
+        />
 
         {/* Zen mode toggle */}
         <div className="flex items-center justify-center">
@@ -526,7 +654,7 @@ export default function PaceReader() {
           </button>
         </div>
 
-        {/* Playback controls - properly centered */}
+        {/* Playback controls */}
         <div className="flex items-center justify-center">
           <div className="flex items-center gap-4">
             <button
@@ -563,13 +691,13 @@ export default function PaceReader() {
           </div>
         </div>
 
-        {/* Word counter & keyboard hints */}
+        {/* Word counter & hints */}
         <div className="text-center space-y-1">
           <div className="text-gray-400 text-sm">
             {currentIndex + 1} / {words.length} words
           </div>
           <div className="text-xs text-gray-600">
-            Space: play/pause · Z: toggle zen · Arrows: speed/skip
+            Space: play · Z: zen · C: chapters · Arrows: speed/skip
           </div>
         </div>
       </div>
