@@ -289,10 +289,10 @@ export default function PaceReader() {
     <div className="min-h-screen bg-pace-bg flex flex-col safe-area-padding">
       <SpeedInfoModal isOpen={showSpeedInfo} onClose={() => setShowSpeedInfo(false)} />
       
-      {/* Progress bar */}
-      <div className="w-full h-1 bg-gray-800">
+      {/* Progress bar - minimal, fades out during reading */}
+      <div className={`w-full h-[2px] bg-gray-900 transition-opacity duration-500 ${isPlaying ? 'opacity-0' : 'opacity-40'}`}>
         <div 
-          className="h-full bg-pace-progress transition-all duration-100"
+          className="h-full bg-gray-500 transition-all duration-100"
           style={{ width: `${progress}%` }}
         />
       </div>
